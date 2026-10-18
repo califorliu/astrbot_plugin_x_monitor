@@ -1,0 +1,11 @@
+name: astrbot_plugin_x_monitor
+display_name: X 监控转发
+desc: 监控 X（原 Twitter）账号并转发到会话 —— 多群独立订阅与群级权限、多源降级抓取、图片/视频获取、LLM 翻译、合并转发（自定义昵称）、免打扰时段补发，并提供 WebUI 管理页。
+version: 1.4.0
+author: califorliu
+repo: https://github.com/califorliu/astrbot_plugin_x_monitor
+support_platforms:
+  - aiocqhttp
+# 注意：这里刻意不写 >=4.24.1。命令侧功能在更旧的版本上完全可用，
+# 只有 WebUI 管理页需要 >=4.24.1，缺失时插件会自动跳过路由注册并告警。
+astrbot_version: ">=4.13.0"

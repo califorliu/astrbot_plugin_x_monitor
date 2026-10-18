@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>X 监控转发 · 管理</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <div id="app">
+    <header class="bar">
+      <div class="bar-left">
+        <strong id="page-title">X 监控转发 · 管理</strong>
+        <span id="version" class="muted"></span>
+      </div>
+      <div class="bar-right">
+        <span id="status" class="muted"></span>
+        <button id="refresh" type="button" class="btn">刷新</button>
+      </div>
+    </header>
+
+    <p class="notice" id="notice">
+      ⚠️ 本页面等同于<b>全局管理员面</b>：能登录 Dashboard 的人本就受信任，
+      因此这里不再做额外的插件级鉴权。页面上的改动会直接写入插件数据与配置。
+    </p>
+
+    <nav class="tabs" id="tabs">
+      <button type="button" class="tab-btn active" data-tab="matrix">订阅矩阵</button>
+      <button type="button" class="tab-btn" data-tab="status">运行状态</button>
+      <button type="button" class="tab-btn" data-tab="config">全局配置</button>
+    </nav>
+
+    <main>
+      <section id="tab-matrix" class="tab-panel"></section>
+      <section id="tab-status" class="tab-panel hidden"></section>
+      <section id="tab-config" class="tab-panel hidden"></section>
+    </main>
+
+    <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+
+    <!-- iframe 沙箱禁用了 alert/confirm/prompt，所以自己画一个 -->
+    <div id="modal" class="modal hidden" role="dialog" aria-modal="true">
+      <div class="modal-box">
+        <h3 id="modal-title">确认</h3>
+        <p id="modal-text"></p>
+        <div class="modal-actions">
+          <button type="button" id="modal-cancel" class="btn">取消</button>
+          <button type="button" id="modal-ok" class="btn danger">确定</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!--
+    type="module" 是必须的：模块脚本默认 defer，会在宿主把页面 SDK 注入之后才执行。
+    普通 <script> 会在解析到这一行时立刻执行，那时 window.AstrBotPluginPage 还不存在，
+    表现为 "Cannot read properties of undefined (reading 'apiGet')"。
+  -->
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

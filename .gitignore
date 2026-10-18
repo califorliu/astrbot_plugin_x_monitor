@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+
+# 运行时数据（绝不入库：数据库、媒体缓存、日志）
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+*.log
+data/
+
+# 构建产物：发版用 git tag + git archive 生成，不把 zip 提交进历史
+*.zip
+dist/

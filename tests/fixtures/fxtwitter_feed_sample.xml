@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  合成样本（非真实抓取）：按 FxTwitter/FxEmbed v2 的 RSS 面**字段形状**手工构造，
+  只保留契约所需的 5 种形态，内容全部为虚构账号/虚构正文，可安全随公开仓分发：
+    1900000000000000001  A 频道本人帖，带 blockquote（引用/回复）
+    1900000000000000002  B 图片帖：image enclosure + description 里的 <img>
+    1900000000000000003  C 视频帖：video enclosure + media:thumbnail
+    1900000000000000004  D 转推：link 指向别的作者
+    1900000000000000005  E 含 &apos; 实体与 <br /> 的正文
+  改动 RSS 解析前请先看这份样本，不要只改自造的 ok_feed_xml()。
+  开发侧另留的真实语料（不随包）存在时，自检会额外跑一遍整体回归；不存在则 SKIP。
+--><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:media="http://search.yahoo.com/mrss/"><channel><title>Sample Feed (@demo_feed)</title><link>https://fxtwitter.com/demo_feed</link><description>Posts by @demo_feed</description><language>en</language><lastBuildDate>Thu, 08 Oct 2026 21:35:44 GMT</lastBuildDate><atom:link href="https://fxtwitter.com/demo_feed/feed.xml" rel="self" type="application/rss+xml" /><image><url>https://pbs.twimg.com/profile_images/1900000000000000009/demo_200x200.jpg</url><title>Sample Feed (@demo_feed)</title><link>https://fxtwitter.com/demo_feed</link></image><item><title>Demo post with a quote.</title><link>https://x.com/demo_feed/status/1900000000000000001</link><guid isPermaLink="true">https://x.com/demo_feed/status/1900000000000000001</guid><pubDate>Thu, 08 Oct 2026 21:35:44 GMT</pubDate><description><![CDATA[<p>Demo post with a quote.</p>
+<blockquote><a href="https://x.com/quotefriend/status/1900000000000000111">Quoted post body from a friend.</a></blockquote>]]></description></item>
+<item><title>Demo post with one image.</title><link>https://x.com/img_author/status/1900000000000000002</link><guid isPermaLink="true">https://x.com/img_author/status/1900000000000000002</guid><pubDate>Thu, 08 Oct 2026 14:42:28 GMT</pubDate><enclosure url="https://pbs.twimg.com/media/DEMOIMG001.jpg?name=orig" length="0" type="image/jpeg"/><description><![CDATA[<p>Demo post with one image.</p>
+<p><a href="https://pbs.twimg.com/media/DEMOIMG001.jpg?name=orig"><img src="https://pbs.twimg.com/media/DEMOIMG001.jpg?name=orig" alt="" /></a></p>
+<blockquote><a href="https://x.com/bot/status/1900000000000000222">A quoted line from another post.</a></blockquote>]]></description></item>
+<item><title>Demo post with a video.</title><link>https://x.com/video_author/status/1900000000000000003</link><guid isPermaLink="true">https://x.com/video_author/status/1900000000000000003</guid><pubDate>Thu, 08 Oct 2026 20:26:35 GMT</pubDate><enclosure url="https://video.twimg.com/amplify_video/1900000000000000008/vid/avc1/1280x720/demo.mp4?tag=29" length="0" type="video/mp4"/><media:thumbnail url="https://pbs.twimg.com/amplify_video_thumb/1900000000000000008/img/demo.jpg"/><description><![CDATA[<p>Demo post with a video.</p>
+<p><a href="https://video.twimg.com/amplify_video/1900000000000000008/vid/avc1/1280x720/demo.mp4?tag=29">Media</a></p>]]></description></item>
+<item><title>Demo repost.</title><link>https://x.com/other_author/status/1900000000000000004</link><guid isPermaLink="true">https://x.com/other_author/status/1900000000000000004</guid><pubDate>Thu, 08 Oct 2026 20:51:56 GMT</pubDate><description><![CDATA[<p>Demo repost.</p>
+<blockquote><a href="https://x.com/third_author/status/1900000000000000333">A quoted paragraph from a third account.</a></blockquote>]]></description></item>
+<item><title>It&apos;s a demo post with a line break</title><link>https://x.com/entity_author/status/1900000000000000005</link><guid isPermaLink="true">https://x.com/entity_author/status/1900000000000000005</guid><pubDate>Thu, 08 Oct 2026 16:55:36 GMT</pubDate><description><![CDATA[<p>It&apos;s a demo<br />
+<br />
+with a second line</p>]]></description></item></channel></rss>

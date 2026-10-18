@@ -1,0 +1,8 @@
+{
+  "pages": {
+    "manage": {
+      "title": "X Monitor · Manage",
+      "description": "Manage monitored accounts, account-to-group subscriptions, per-group quiet hours and global settings"
+    }
+  }
+}

@@ -1,0 +1,401 @@
+{
+  "plugin_admins": {
+    "description": "全局管理员",
+    "hint": "填用户 ID（群里发 /x在哪 查看）。可管理整库：改群模式、授权群级管理员、删任意订阅。与 AstrBot 全局管理员互相独立，避免权限越界。留空 = 谁都无权管理。",
+    "type": "list",
+    "obvious_hint": true,
+    "default": []
+  },
+  "group_admins": {
+    "description": "群级管理员",
+    "hint": "格式「群号:用户ID」，如 123456:10001；填「*:用户ID」表示在所有群都是群级管理员。只能管理本群订阅，可改本群昵称与免打扰。",
+    "type": "list",
+    "default": []
+  },
+  "open_groups": {
+    "description": "白名单群",
+    "hint": "填群号或完整 UMO。这些群里所有成员都能增删订阅、查看列表。也可用 /x群模式 whitelist 在群内直接设置。",
+    "type": "list",
+    "obvious_hint": true,
+    "default": []
+  },
+  "readonly_groups": {
+    "description": "只读群",
+    "hint": "填群号或完整 UMO。这些群里所有成员都能查看列表与状态，但只有管理员能增删订阅。",
+    "type": "list",
+    "obvious_hint": true,
+    "default": []
+  },
+  "default_group_mode": {
+    "description": "未配置群的模式",
+    "hint": "不在上面两个名单里的群使用哪种模式。默认「仅管理员」最安全：装好插件不会立刻被陌生人订阅。",
+    "type": "string",
+    "options": ["none", "readonly", "whitelist"],
+    "labels": ["未配置：仅管理员可操作", "只读群：全员可看，仅管理员可订阅", "白名单群：全员可订阅"],
+    "obvious_hint": true,
+    "default": "none"
+  },
+  "private_mode": {
+    "description": "私聊模式",
+    "hint": "私聊是 1v1，不存在刷屏压力，默认放开查看、限制写入。",
+    "type": "string",
+    "options": ["none", "readonly", "whitelist"],
+    "labels": ["仅管理员可操作", "只读：全员可看", "白名单：全员可订阅"],
+    "default": "readonly"
+  },
+  "readonly_allow_manage": {
+    "description": "白名单群可由普通成员管理",
+    "hint": "允许白名单群的普通成员暂停推送、改昵称、改免打扰。危险：等于全群可改配置，默认关闭。即使开启也只作用于本群。",
+    "type": "bool",
+    "obvious_hint": true,
+    "default": false
+  },
+  "poll_interval_minutes": {
+    "description": "轮询间隔（分钟）",
+    "hint": "多久检查一次所有订阅账号的新帖。间隔越短越及时，但请求越多。FxTwitter 限速 1000 请求/分钟/IP，正常使用远够。",
+    "type": "int",
+    "slider": { "min": 1, "max": 60, "step": 1 },
+    "default": 5
+  },
+  "fetch_concurrency": {
+    "description": "并发抓取数",
+    "hint": "一轮里同时抓取多少个账号。账号多时可调高，建议不超过 5。",
+    "type": "int",
+    "slider": { "min": 1, "max": 10, "step": 1 },
+    "default": 3
+  },
+  "fetch_chain": {
+    "description": "数据源降级链",
+    "hint": "按顺序尝试，谁先成功就用谁；某个源连续失败会自动挪到队尾冷却（其余源都失败时仍会兜底试它）。可选项：fxtwitter（官方形态的第三方 API，免 key，功能最全，推荐首选）、fxtwitter_rss（同服务的 RSS 面，实测 90 条里 34 条带图片/视频，但没有 lang 字段、也拿不到回复帖）、rsshub（自建 RSSHub / Nitter fork 实例池，需在下面填实例地址）。顺序就是优先级，删掉不想用的项即可。",
+    "type": "list",
+    "options": ["fxtwitter", "fxtwitter_rss", "rsshub"],
+    "labels": ["FxTwitter API（免 key，推荐）", "FxTwitter RSS（备用，含图片/视频，无回复）", "自建 RSSHub / Nitter 实例池"],
+    "obvious_hint": true,
+    "default": ["fxtwitter", "fxtwitter_rss", "rsshub"]
+  },
+  "fxtwitter_api_base": {
+    "description": "FxTwitter API 地址",
+    "hint": "默认 https://api.fxtwitter.com。只有自建反代或需要验证降级链时才改；故意填一个失效地址即可观察自动切换到下一层。改完立即生效，不用重载。",
+    "type": "string",
+    "default": "https://api.fxtwitter.com"
+  },
+  "rss_base": {
+    "description": "FxTwitter RSS 地址",
+    "hint": "默认 https://fxtwitter.com，会依次尝试 /{handle}/feed.xml、/feed、/rss（记住上次成功的那个面）。实测该 feed 含图片与视频（90 条里 34 条，另有 2 条是链接卡片图不计），但没有 lang 字段、也不含回复帖，所以它是“API 挂掉时别断更”的备份，而不是等价替代。",
+    "type": "string",
+    "default": "https://fxtwitter.com"
+  },
+  "rsshub_instances": {
+    "description": "RSSHub / Nitter 实例池",
+    "hint": "每行一个自建实例根地址，如 https://rsshub.example.com。会先试 RSSHub 的 /twitter/user/{handle} 路由，再退回 feed 形态。公共实例实测不可用（xcancel 已 451、rsshub.app 会跳转），所以这一层只对自建实例有意义；实例连续失败会被冷却 10 分钟再试。",
+    "type": "list",
+    "default": []
+  },
+  "provider_failover_threshold": {
+    "description": "数据源熔断阈值",
+    "hint": "某个源连续失败多少次后挪到队尾冷却，默认 1（一次失败本轮就换源）。注意：因为“找到可用源就立刻返回”，被冷却的源在冷却期内**不会**被每轮试探——它只会在冷却到期回到原顺位、或其余源全部失败的兜底轮次里被试到。改完立即生效，不用重载。",
+    "type": "int",
+    "slider": { "min": 1, "max": 10, "step": 1 },
+    "default": 1
+  },
+  "provider_cooldown_sec": {
+    "description": "数据源冷却时间（秒）",
+    "hint": "失败后被挪到队尾的源，多久之后恢复正常顺位。设 0 表示不冷却（每轮都按配置顺序试一遍，更慢但最不容易被坏源拖住）。改完立即生效。",
+    "type": "int",
+    "slider": { "min": 0, "max": 3600, "step": 30 },
+    "default": 600
+  },
+  "probe_handle": {
+    "description": "诊断探测用账号",
+    "hint": "/x源 探测 用它来测每个源是否可用，只读一条时间线，不消耗订阅额度。X 是官方账号，长期存在。",
+    "type": "string",
+    "default": "X"
+  },
+  "include_replies": {
+    "description": "抓取回复帖",
+    "hint": "关闭时会在请求里省掉 with_replies 参数 —— 实测时间线默认就不含回复，所以关闭是零成本的。开启后回复量大，请配合下面的过滤项使用。注意：RSS 备用源（fxtwitter_rss）镜像的是默认时间线，「不含回复」，所以降级期间即使开了这项也会少收回复。",
+    "type": "bool",
+    "default": false
+  },
+  "filter_reposts": {
+    "description": "过滤转推",
+    "hint": "不推送转发（reposted_by 非空）的帖子。实测时间线默认含转推，通常不需要。",
+    "type": "bool",
+    "default": true
+  },
+  "filter_replies": {
+    "description": "过滤回复帖",
+    "hint": "不推送回复（replying_to 非空）的帖子。这是客户端二次过滤：即使用 /media 这类默认含回复的端点，也不会漏掉。",
+    "type": "bool",
+    "default": true
+  },
+  "filter_quotes": {
+    "description": "过滤引用帖",
+    "hint": "不推送引用（quote 非空）的帖子。引用帖通常自带内容，默认保留。",
+    "type": "bool",
+    "default": false
+  },
+  "send_mode": {
+    "description": "发送形态",
+    "hint": "合并转发把内容包成聊天记录，节点昵称可自定义；平台不支持或失败时会自动降级为普通消息链，不会丢内容。",
+    "type": "string",
+    "options": ["forward", "chain"],
+    "labels": ["合并转发（聊天记录，推荐）", "普通消息链（正文 + 图片）"],
+    "default": "forward"
+  },
+  "forward_nickname_fallback": {
+    "description": "转发节点默认昵称",
+    "hint": "订阅没有设置自定义昵称、且推主名取不到时使用的兜底昵称。",
+    "type": "string",
+    "default": "X"
+  },
+  "max_images_per_forward": {
+    "description": "单条合并转发最多图片",
+    "hint": "一次合并转发里最多放几张图（一张图一个节点）。X 单帖实测最多 4 张图，通常不需要改。",
+    "type": "int",
+    "slider": { "min": 1, "max": 20, "step": 1 },
+    "default": 10
+  },
+  "max_forward_payload_mb": {
+    "description": "合并转发体积上限（MB）",
+    "hint": "合并转发会把图片转成 base64 内联，体积约为原图的 1.34 倍。超过此预算会自动拆成多条合并转发。宁小勿大：5MB 是实测较稳的值。",
+    "type": "float",
+    "slider": { "min": 1, "max": 20, "step": 0.5 },
+    "default": 5.0
+  },
+  "send_video": {
+    "description": "发送视频",
+    "hint": "关闭时视频只留原帖链接。开启后视频作为独立消息另发（绝不放进合并转发节点），且会自动挑 mp4 最高码率档，不会取 m3u8。",
+    "type": "bool",
+    "default": false
+  },
+  "media_mode": {
+    "description": "媒体获取方式",
+    "hint": "download：先下载到本地再发送，可控体积、不怕防盗链与链接过期，占用磁盘。link：直接发送原图直链，省磁盘但依赖外链可用。注意：1.3.2 之前 download 档因为一个判断写错而从未生效（实际一直在走直链），如果你之前选的就是 download，本版起才会真的开始下载。",
+    "type": "string",
+    "options": ["download", "link"],
+    "labels": ["本地下载（推荐）", "直链透传"],
+    "default": "download"
+  },
+  "image_quality": {
+    "description": "图片画质",
+    "hint": "只改 twimg 的 name 参数，不做转码，零画质损失、零 CPU。orig 是原图（可能数 MB），large 约 1024px。",
+    "type": "string",
+    "options": ["orig", "large", "small"],
+    "labels": ["原图 orig", "大图 large", "小图 small"],
+    "default": "orig"
+  },
+  "forward_image_quality": {
+    "description": "合并转发时的图片画质",
+    "hint": "合并转发会把图片 base64 内联进 payload。实测 X 的 orig 原图比普通采集图大一个数量级，因此合并转发默认降到 large 以免被协议端拒收。",
+    "type": "string",
+    "options": ["orig", "large", "small"],
+    "labels": ["原图 orig", "大图 large（推荐）", "小图 small"],
+    "default": "large"
+  },
+  "cache_quota_mb": {
+    "description": "媒体缓存上限（MB）",
+    "hint": "本地媒体缓存的总配额。超出后按最久未使用淘汰，避免磁盘无限增长。",
+    "type": "int",
+    "slider": { "min": 64, "max": 4096, "step": 64 },
+    "default": 512
+  },
+  "cache_ttl_days": {
+    "description": "媒体缓存保留天数",
+    "hint": "超过天数的缓存文件会被清理。已发送过的推文不受影响。",
+    "type": "int",
+    "slider": { "min": 1, "max": 365, "step": 1 },
+    "default": 30
+  },
+  "image_pool_sync_enabled": {
+    "description": "图库联动（astrbot_plugin_image_pool）",
+    "hint": "开启后把推文照片自动归档进角色图库插件，tag = 该订阅的自定义昵称（没设昵称的订阅不入库）。单向依赖：图库未安装 / 未启用 / 版本过旧时只记日志，不影响推文推送。注意 X 归档图会被图库记为 source=x，默认的保留期清理不会自动淘汰它们，请留意磁盘。",
+    "type": "bool",
+    "default": false
+  },
+  "image_pool_quality": {
+    "description": "图库归档画质",
+    "hint": "归档时向 twimg 请求的画质档位（只改 URL 的 name 参数，不转码）。与发送画质相互独立：档位相同则复用同一份缓存文件，不同则多下一次。默认 large，避免原图快速吃掉图库磁盘。",
+    "type": "string",
+    "options": ["orig", "large", "small"],
+    "labels": ["原图 orig", "大图 large（推荐）", "小图 small"],
+    "default": "large"
+  },
+  "image_pool_max_tags_per_post": {
+    "description": "图库归档最多几个 tag",
+    "hint": "同一账号被多个群用不同昵称订阅时，每个昵称各存一份 tag。这是防止一次入库被放大成几十次跨插件写入的上限，超出部分记日志跳过。",
+    "type": "int",
+    "slider": { "min": 1, "max": 20, "step": 1 },
+    "default": 5
+  },
+  "image_pool_sync_budget_sec": {
+    "description": "图库入库时间预算（秒）",
+    "hint": "每个账号每轮抓取用于入库的总预算，用尽即停止（下轮不会重抓，未归档的图将永久不归档，日志会说明）。防止图库侧被 SQLite 锁住时把轮询拖死。",
+    "type": "float",
+    "slider": { "min": 1, "max": 120, "step": 1 },
+    "default": 15.0
+  },
+  "translate_enabled": {
+    "description": "启用翻译",
+    "hint": "复用 AstrBot 已配置的模型翻译推文，不需要额外 API key。未配置可用模型时自动只发原文，不会报错。",
+    "type": "bool",
+    "default": false
+  },
+  "target_lang": {
+    "description": "目标语言",
+    "hint": "翻译的目标语言。原文语言与之相同（按推文的 lang 字段判断）时会自动跳过，不浪费模型调用。",
+    "type": "string",
+    "default": "zh-CN"
+  },
+  "translation_provider_id": {
+    "description": "翻译专用模型（可选）",
+    "hint": "留空则使用当前会话的默认模型。只有在想指定其它模型时才需要填。",
+    "type": "string",
+    "default": ""
+  },
+  "translate_timeout_sec": {
+    "description": "翻译超时（秒）",
+    "hint": "单条推文的翻译总时限。超时则只发原文，绝不阻塞推送。",
+    "type": "int",
+    "slider": { "min": 5, "max": 120, "step": 5 },
+    "default": 30
+  },
+  "translate_max_consecutive_failures": {
+    "description": "翻译熔断阈值",
+    "hint": "同一轮里连续失败多少次就停止本轮翻译，避免一个坏模型拖垮整轮轮询。",
+    "type": "int",
+    "slider": { "min": 1, "max": 10, "step": 1 },
+    "default": 2
+  },
+  "skip_langs": {
+    "description": "不翻译的语言",
+    "hint": "按推文的 lang 字段跳过，例如 en、ja。留空表示只按目标语言与中文占比判断。RSS 备用源没有 lang 字段，插件会用启发式推断（假名→ja、谚文→ko、汉字→zh、拉丁为主→en），短文本可能推断不出而不跳过。",
+    "type": "list",
+    "default": []
+  },
+  "min_len": {
+    "description": "最短翻译长度",
+    "hint": "原文短于这个字符数就不翻译，避免把 True、lol 这种单词丢给模型。",
+    "type": "int",
+    "slider": { "min": 0, "max": 50, "step": 1 },
+    "default": 4
+  },
+  "min_chinese_ratio_skip": {
+    "description": "中文占比跳过阈值",
+    "hint": "原文中文字符占比达到这个比例就认为不需要翻译（中英混排的推文常见）。",
+    "type": "float",
+    "slider": { "min": 0, "max": 1, "step": 0.05 },
+    "default": 0.35
+  },
+  "hide_original_when_translated": {
+    "description": "有译文时不显示原文",
+    "hint": "开启后只发译文；关闭则原文与译文都发。",
+    "type": "bool",
+    "default": false
+  },
+  "translate_prompt": {
+    "description": "翻译提示词",
+    "hint": "可用占位符 {target_lang} 与 {source_lang}。默认不按语言区分提示词——按语言分叉只会让配置变复杂，收益很小。",
+    "type": "text",
+    "default": "把下面的推文翻译成{target_lang}。只输出译文本身，不要解释、不要加引号、保留原意与语气，专有名词按通用译法处理。"
+  },
+  "translate_glossary": {
+    "description": "术语表",
+    "hint": "每行一条「原文=译文」，会注入提示词。比按语言分提示词有用得多：X 推文充斥俚语、meme 与产品名，术语表能直接解决「翻得对但名字翻错」。",
+    "type": "list",
+    "default": []
+  },
+  "translate_prompts_by_lang": {
+    "description": "分语言提示词（可选）",
+    "hint": "每行一条「语言代码=提示词」，如 ja=请用敬语翻译。留空则一律使用上面的通用提示词。只在某语种确实需要专门提示词时才填。",
+    "type": "list",
+    "default": []
+  },
+  "dnd_enabled": {
+    "description": "启用免打扰",
+    "hint": "开启后，时段内抓到的推文只入队不发送；时段结束后按速率逐条补发。",
+    "type": "bool",
+    "obvious_hint": true,
+    "default": false
+  },
+  "dnd_ranges": {
+    "description": "免打扰时段",
+    "hint": "每行一段「开始-结束」，支持跨天，例如 23:00-08:00。多段可写多行，也可用逗号分隔。也可在群里用 /x免打扰 23:00-08:00 设置。",
+    "type": "list",
+    "obvious_hint": true,
+    "default": []
+  },
+  "dnd_timezone": {
+    "description": "免打扰时区",
+    "hint": "时段按此时区判断。Docker 容器通常是 UTC，务必显式设置，否则时段会整体偏移 8 小时。",
+    "type": "string",
+    "obvious_hint": true,
+    "default": "Asia/Shanghai"
+  },
+  "dnd_drain_rate": {
+    "description": "补发速率（条/分钟）",
+    "hint": "免打扰结束后每分钟最多补发多少条，避免解禁瞬间刷屏触发风控。",
+    "type": "int",
+    "slider": { "min": 1, "max": 30, "step": 1 },
+    "default": 5
+  },
+  "dnd_backlog_limit": {
+    "description": "积压上限",
+    "hint": "队列中最多积压多少条。超出后丢弃最旧的并发送一条汇总告知——绝不静默丢弃。设为 0 表示不限制。",
+    "type": "int",
+    "slider": { "min": 0, "max": 500, "step": 10 },
+    "default": 50
+  },
+  "dnd_notify_on_drop": {
+    "description": "丢弃积压时告知",
+    "hint": "因超出积压上限而丢弃推文时，在对应会话发一条汇总提示。",
+    "type": "bool",
+    "default": true
+  },
+  "backlog_notify_cooldown_minutes": {
+    "description": "积压通知冷却（分钟）",
+    "hint": "队列持续超限时，每个排空周期都会触发裁剪与通知，不加冷却会刷屏。设为 0 表示每次都通知。",
+    "type": "int",
+    "slider": { "min": 0, "max": 720, "step": 10 },
+    "default": 30
+  },
+  "send_jitter": {
+    "description": "发送间隔加抖动",
+    "hint": "在补发间隔上叠加随机抖动，避免同一秒连续发送被协议端风控。",
+    "type": "bool",
+    "default": true
+  },
+  "max_send_attempts": {
+    "description": "单条最大发送尝试次数",
+    "hint": "发送失败后最多重试几次，超过则标记为失败，不再占用队列。",
+    "type": "int",
+    "slider": { "min": 1, "max": 10, "step": 1 },
+    "default": 3
+  },
+  "replay_default": {
+    "description": "回放默认条数",
+    "hint": "/x补发 不带条数时默认回放几条。回放用于验证发送链路与补看漏掉的推文，不会推进水位、不写投递记录。",
+    "type": "int",
+    "slider": { "min": 1, "max": 10, "step": 1 },
+    "default": 3
+  },
+  "replay_max": {
+    "description": "回放条数上限",
+    "hint": "/x补发 一次最多回放几条，防止一条指令放大成几十条消息。",
+    "type": "int",
+    "slider": { "min": 1, "max": 30, "step": 1 },
+    "default": 10
+  },
+  "display_timezone": {
+    "description": "推文时间显示时区",
+    "hint": "推文头部显示的时间所用时区，与免打扰时区互相独立。",
+    "type": "string",
+    "default": "Asia/Shanghai"
+  },
+  "http_proxy": {
+    "description": "出站代理（可选）",
+    "hint": "形如 http://127.0.0.1:7890 或 socks5://127.0.0.1:1080。服务器能直连 X 时留空即可。",
+    "type": "string",
+    "default": ""
+  }
+}
