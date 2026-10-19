@@ -482,7 +482,7 @@ class FlakyContext(SendContext):
 
 
 def with_provider(plugin, provider, module):
-    """把一个替身包进单元素降级链（P5 起抓取一律走 ProviderChain）。
+    """把一个替身包进单元素降级链（抓取一律走 ProviderChain）。
 
     返回替身本身，便于继续读它的 ``calls`` / ``posts`` 记录。
     """
@@ -658,7 +658,7 @@ AUTHOR = {
 
 
 # --------------------------------------------------------------------------- #
-# 离线 HTTP 替身（P5：多源降级链要用真实 provider 逻辑跑，不能只喂假 provider）
+# 离线 HTTP 替身（多源降级链要用真实 provider 逻辑跑，不能只喂假 provider）
 # --------------------------------------------------------------------------- #
 
 
@@ -1261,6 +1261,44 @@ def main() -> int:  # noqa: C901 - 自检脚本，按主题分段
     rep.check("抓取时 since 用的是水位", fake.calls[0][1], 1700000500)
     rep.false("默认不请求回复", fake.calls[0][2])
 
+    # 回归：基线轮必须同步推进订阅边水位 —— 否则第一条新帖会把整页历史一起投递
+    # （数据源的 ?since= 只决定 200/204，不裁剪页面；见 data-sources.md §2）
+    pr = make_plugin(module, tag="poll_baseline_replay")
+    pr.store.upsert_author("44196397", "elonmusk", "Elon Musk")
+    pr.store.add_edge("aiocqhttp:GroupMessage:100", "100", "44196397", "", 0)  # 全新账号 start_ts=0
+    with_provider(
+        pr,
+        FakeProvider(
+            module,
+            author=AUTHOR,
+            posts=[make_status(post_id="1900000000000000001", created=1700000500)],
+        ),
+        module,
+    )
+    rep.true("基线轮建立基线", "baseline" in run(pr.poll_author("44196397")))
+    rep.check(
+        "基线轮同步推进订阅边水位",
+        int(pr.store.get_edge("aiocqhttp:GroupMessage:100", "44196397")["enqueued_ts"]),
+        1700000500,
+    )
+    # 第二轮模拟源端返回整页：更早的历史 + 基线那条 + 唯一新帖
+    with_provider(
+        pr,
+        FakeProvider(
+            module,
+            author=AUTHOR,
+            posts=[
+                make_status(post_id="1900000000000000002", created=1700000300),
+                make_status(post_id="1900000000000000001", created=1700000500),
+                make_status(post_id="1900000000000000003", created=1700000600),
+            ],
+        ),
+        module,
+    )
+    replay = run(pr.poll_author("44196397"))
+    rep.check("基线后首轮只入队新帖（不补发历史）", replay.get("enqueued", 0), 1)
+    rep.check("历史帖不入队", pr.store.queue_depth(), 1)
+
     pp.store.upsert_author("44196397", "elonmusk", "Elon Musk")
     pp.store.mark_baseline("44196397", 1700000600)
     with_provider(pp, FakeProvider(module, ok=False), module)
@@ -1292,8 +1330,26 @@ def main() -> int:  # noqa: C901 - 自检脚本，按主题分段
     pp3.store.add_edge("aiocqhttp:GroupMessage:100", "100", "44196397", "", 0)
     r3_first = run(pp3.poll_author("44196397"))  # 首轮只建基线
     rep.true("重复 id 的首轮仍建立基线", "baseline" in r3_first)
+    # 基线轮已把边水位推到 1700000900；**与水位同秒的帖不入队是预期语义**
+    # （入队判据是排他边界 created_ts > edges.enqueued_ts），不是去重失效。
     r3_second = run(pp3.poll_author("44196397"))
-    rep.check("重复 id 去重后只入队一次", r3_second.get("enqueued", 0), 1)
+    rep.check("水位内（同秒）的重复帖不入队", r3_second.get("enqueued", 0), 0)
+    rep.check("水位内的帖不进队列", pp3.store.queue_depth(), 0)
+    # 水位**之后**的新帖带重复 id：去重后必须只入队一次
+    with_provider(
+        pp3,
+        FakeProvider(
+            module,
+            author=AUTHOR,
+            posts=[
+                make_status(post_id="3000000000000000002", created=1700001000),
+                make_status(post_id="3000000000000000002", created=1700001000),
+            ],
+        ),
+        module,
+    )
+    r3_third = run(pp3.poll_author("44196397"))
+    rep.check("重复 id 去重后只入队一次", r3_third.get("enqueued", 0), 1)
     rep.check("去重后队列只有一条", pp3.store.queue_depth(), 1)
 
     # 单账号异常不得拖垮整轮
@@ -1310,14 +1366,14 @@ def main() -> int:  # noqa: C901 - 自检脚本，按主题分段
     pp4.store.mark_baseline("1", 100)
     pp4.store.add_edge("aiocqhttp:GroupMessage:1", "1", "1", "", 100)
     stats4 = run(pp4.poll_once())
-    rep.check("单账号异常被收敛为本轮错误", stats4.get("errors"), 1)
+    rep.check("单账号异常被收敛为本次错误", stats4.get("errors"), 1)
     rep.check("整轮仍统计到该账号", stats4.get("authors"), 1)
 
     pp5 = make_plugin(module, tag="poll_empty", provider=FakeProvider(module))
     pp5._http = object()
     rep.check("无订阅时轮询直接返回", run(pp5.poll_once()).get("authors"), 0)
 
-    # =========================================================== P5 多源降级链
+    # =========================================================== 多源降级链
     # ---- RSS 防御式解析（纯函数）
     rep.check(
         "_strip_html_text 还原实体与换行",
@@ -1862,8 +1918,8 @@ def main() -> int:  # noqa: C901 - 自检脚本，按主题分段
     with_provider(pkeep, FakeProvider(module, author=AUTHOR, posts=[]), module)
     rep.check("哨兵 http 下保留替身链", list(pkeep._ensure_chain().names), ["fake"])
 
-    # =========================================================== P5 对抗式审查的反向断言
-    # 下面每条都对应审查里"被证伪"的一个结论，都是**先有 bug、后有断言**。
+    # =========================================================== 多源降级链的反向断言
+    # 下面每条都对应一个被证伪的结论，都是**先有 bug、后有断言**。
     # 断言前的注释写的是"为什么会错"，方便下一个人判断能不能改。
 
     # ---- 404 是"账号不存在"，不是"这个源坏了"：
@@ -2145,7 +2201,7 @@ def main() -> int:  # noqa: C901 - 自检脚本，按主题分段
     probe_out2 = drive(src_chain.cmd_source(FakeEvent(uid="root", gid="100"), "探测"))
     rep.contains("探测结果显示条目数", probe_out2[0], "条）")
 
-    # ---- 审查发现的 RSS 侧缺陷（纯函数层面）
+    # ---- RSS 侧缺陷（纯函数层面）
     rep.check("_rss_post_id 空来源返回空串（不再塌成常量哈希）", module._rss_post_id(""), "")
     rep.check("_rss_post_id 空来源条目被丢弃", module._entry_to_status({"description": "x"}), None)
     idless = (
@@ -2435,8 +2491,8 @@ def main() -> int:  # noqa: C901 - 自检脚本，按主题分段
     else:
         print("SKIP  真实语料整体回归：本机没有 resources/feed.xml（发布包里不带）")
 
-    # =========================================================== 第二轮验证的反向断言
-    # 每条都对应"验证员证明我修错了/没修好/修出新问题"的地方。
+    # =========================================================== 抓取与发送层的反向断言
+    # 每条都对应"修错了 / 没修好 / 修出新问题"的地方。
 
     # ---- 404 的处理必须**区分**"账号不存在"与"源坏了"：
     # 只做"404 不熔断"会留下僵尸源；只做"连续 404 就熔断"会冤枉健康源
@@ -2641,7 +2697,7 @@ def main() -> int:  # noqa: C901 - 自检脚本，按主题分段
 
     pmedia_fail._prepare_media = _boom_prepare
     fail_round = run(pmedia_fail.poll_author("100000001"))
-    rep.false("媒体预处理异常不会让本轮报错", bool(fail_round.get("error")))
+    rep.false("媒体预处理异常不会让本次报错", bool(fail_round.get("error")))
     rep.check("媒体预处理异常仍完成入队", fail_round.get("enqueued", 0) > 0, True)
     rep.true(
         "媒体预处理异常仍推进水位",
@@ -3590,12 +3646,12 @@ def main() -> int:  # noqa: C901 - 自检脚本，按主题分段
     rep.false("app.js 不自行拼 umo（改由后端 resolve_umo 解析）", "normalizeUmo" in app_js)
     rep.true("app.js 用 groupPicker 选择会话", "groupPicker" in app_js)
 
-    # P5：账号表要能看出每个账号由哪个数据源供数，否则排障只能翻日志
+    # 账号表要能看出每个账号由哪个数据源供数，否则排障只能翻日志
     rep.true("app.js 账号表有数据源列", '"数据源"' in app_js)
     rep.true("app.js 渲染每账号的生效源", "author.source" in app_js)
     rep.true("app.js 展示降级告警", "provider_degraded" in app_js or "provider_chain" in app_js)
 
-    # 审查修复的前端守卫（都是"功能静默失效"类问题，必须固化）
+    # 前端守卫（都是"功能静默失效"类问题，必须固化）
     rep.true("手动模式支持私聊（FriendMessage）", "FriendMessage" in app_js)
     rep.true("写操作有防重复提交（withBusy）", "withBusy" in app_js)
     rep.true("SDK 缺失提示是粘性的（state.fatal）", "state.fatal" in app_js)
@@ -3756,7 +3812,7 @@ def main() -> int:  # noqa: C901 - 自检脚本，按主题分段
     rep.true("删账号后作者不存在", pweb.store.get_author("44196397") is None)
     rep.true("删账号后无残留订阅", len(pweb.store.list_edges("aiocqhttp:GroupMessage:100")) == 0)
 
-    # =========================================================== 审查修复的回归守卫
+    # =========================================================== 回归守卫
     rep.check("to_bool('false') 是 False（bool() 会是 True）", module.to_bool("false"), False)
     rep.check("to_bool('0') 是 False", module.to_bool("0"), False)
     rep.check("to_bool('关') 是 False", module.to_bool("关"), False)

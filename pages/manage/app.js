@@ -749,7 +749,7 @@
           ? "已入库 " + (pool.added || 0) + " 张"
           : "不可用";
     // 文案由服务端给（payload.tag_state_text）：以前这里有一份硬编码拷贝，
-    // 已经和 main.py 分叉过 —— rejected_only 那版少了可执行的下一步（独立验证 L-C2）。
+    // 已经和 main.py 分叉过 —— rejected_only 那版少了可执行的下一步。
     const poolTagWarnText = pool.tag_state_text || "";
     const poolRejected = pool.rejected_nicknames || [];
 
@@ -779,7 +779,7 @@
               { class: "muted", style: "margin-top:10px" },
               "⚠️ 图库联动已开启但不可用：" + (pool.reason_text || pool.reason || "原因未知") +
                 // unknown 态（读订阅表失败）时 available 也是 false，这里要把状态文案带上，
-                // 否则它在页面上完全没有出口（独立验证 N-4）
+                // 否则它在页面上完全没有出口
                 (pool.tag_state_text ? "；" + pool.tag_state_text : "") +
                 "。推文推送不受影响。"
             )
@@ -793,7 +793,7 @@
             )
           : null,
         // 全局状态是 ready 时，仍可能有个别订阅的昵称不能用（A 群可用、B 群是 NUL）——
-        // 这条以前完全没有出口，B 的图会永远不入库而页面看起来正常（独立验证 L-②）。
+        // 这条以前完全没有出口，B 的图会永远不入库而页面看起来正常。
         pool.enabled && pool.available && poolTagWarnText === "" && poolRejected.length
           ? el(
               "div",

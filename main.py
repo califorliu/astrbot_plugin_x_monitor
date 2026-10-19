@@ -30,7 +30,7 @@
 
 存储
     data/plugin_data/astrbot_plugin_x_monitor/
-      xmonitor.sqlite3   authors / edges / posts / deliveries / meta
+      xmonitor.sqlite3   authors / edges / posts / deliveries / groups / known_groups / meta
       media/<sha>.<ext>  有界媒体缓存
 """
 
@@ -76,7 +76,7 @@ except Exception:  # pragma: no cover - 旧版本优雅降级
     WEB_API_AVAILABLE = False
 
 PLUGIN_NAME = "astrbot_plugin_x_monitor"
-PLUGIN_VERSION = "1.4.0"
+PLUGIN_VERSION = "1.4.1"
 FXTWITTER_BASE = "https://api.fxtwitter.com"
 FXTWITTER_RSS_BASE = "https://fxtwitter.com"
 
@@ -171,8 +171,8 @@ IMAGE_POOL_QUALITIES = ("orig", "large", "small")
 
 #: "联动能不能出图"的五种状态文案。**这里是唯一来源**：`/x状态` 直接用它，
 #: WebUI 也从 payload 的 ``tag_state_text`` 读它（早先 app.js 里有一份硬编码拷贝，
-#: 已经和这边分叉过 —— 独立验证 L-C2）。文案里**不要用 Markdown**：`plain_result`
-#: 不渲染，用户会看到字面的 `**`（L-N5）。
+#: 已经和这边分叉过）。文案里**不要用 Markdown**：`plain_result`
+#: 不渲染，用户会看到字面的 `**`。
 IMAGE_POOL_TAG_STATE_TEXT = {
     "ready": "",
     "no_nickname": "没有任何订阅设置自定义昵称 → 不会入库（用 /x昵称 <handle> <昵称> 设置）",
@@ -239,7 +239,7 @@ def _nick_clean(text) -> str:
 
     单独抽出来是为了让调用方能在截断**之前**判断"是不是太长了" ——
     ``normalize_nick`` 会静默截断到 32 字，而 WebUI 的 400 文案却声称"长度不超过 32 字"
-    （独立验证 N-2：40 字的输入被静默截断，用户以为自己填的就是那 40 个字）。
+    （40 字的输入被静默截断，用户以为自己填的就是那 40 个字）。
     """
     name = ILLEGAL_CHARS.sub("", str(text))
     name = re.sub(r"\s+", " ", name).strip()
@@ -289,7 +289,7 @@ def pool_tag(text) -> str:
     if name.split(".")[0].strip().casefold() in IMAGE_POOL_DEVICE_NAMES:
         return ""
     # 含零宽字符的 tag 对端已经拒收（image_pool `_ensure_category`），这里必须一致：
-    # 否则状态页判 `ready`、`rejected_tags` 不涨，用户的图**静默不入库**（独立验证 O-N4）。
+    # 否则状态页判 `ready`、`rejected_tags` 不涨，用户的图**静默不入库**。
     if any(ch in name for ch in "\u200b\u200c\u200d\ufeff"):
         return ""
     try:
@@ -307,11 +307,11 @@ def parse_nickname_input(raw) -> tuple[bool, str, str]:
     * **``None`` = 用户明确要清空** → 合法，返回空串；
     * **非字符串一律拒绝**：JSON 里的 ``0`` / ``false`` / ``[]`` / ``{}`` 会被
       ``str()`` 强转成 ``"0"`` / ``"False"`` / ``"[]"`` / ``"{}"`` 存进去，
-      那不是用户想要的昵称（独立验证 N-2）；
+      那不是用户想要的昵称；
     * **原文非空但规范化后为空 → 拒绝**：``normalize_nick`` 对孤立代理对与空串都返回 ``""``，
       直接拿结果写库会把"非法输入"当成"清空昵称"并回 200 成功 —— 用户以为改了昵称，
-      其实旧昵称被静默抹掉（L-N3）；
-    * **规范化后超过 ``MAX_NICK_LEN`` → 拒绝**，而不是静默截断（N-2）。
+      其实旧昵称被静默抹掉；
+    * **规范化后超过 ``MAX_NICK_LEN`` → 拒绝**，而不是静默截断。
     """
     if raw is None:
         return True, "", ""
@@ -320,7 +320,7 @@ def parse_nickname_input(raw) -> tuple[bool, str, str]:
     full = _nick_clean(raw)
     if raw.strip() and not full:
         # 两种成因都写出来：全被非法字符剔掉（如 `\\\\`）与含无法编码的字符，
-        # 只说后者会把用户引向错误方向（独立验证 O-N7）。
+        # 只说后者会把用户引向错误方向。
         return False, "", "昵称不可用（含非法字符，或全由无法编码的字符组成）"
     if len(full) > MAX_NICK_LEN:
         return False, "", f"昵称过长（最多 {MAX_NICK_LEN} 字，收到 {len(full)} 字）"
@@ -1428,7 +1428,7 @@ class FetchResult:
     否则会把失败写进去重水位，造成永久漏推。
 
     ``provider`` 与 ``source`` 是同一件事的两个名字：``source`` 是存量字段
-    （测试与日志都在用），``provider`` 是 P5 引入的显式名字，新代码统一读它。
+    （测试与日志都在用），``provider`` 是抓取层引入的显式名字，新代码统一读它。
     """
 
     ok: bool = False
@@ -1451,7 +1451,7 @@ class FetchResult:
 
 
 class Store:
-    """SQLite 存储：authors / edges / posts / deliveries / groups / meta 六张表。
+    """SQLite 存储：authors / edges / posts / deliveries / groups / known_groups / meta 七张表。
 
     四条不变量（有测试守着）：
       1. ``UNIQUE(edge_id, post_id)``  —— 结构上杜绝同一会话重复推送
@@ -1725,6 +1725,32 @@ class Store:
                 (int(seen_ts), int(time.time()), author_id),
             )
 
+    def commit_baseline(self, author_id: str, seen_ts: int) -> int:
+        """建立基线：一个事务里同时写 authors 与推进该账号所有订阅边。
+
+        「首次订阅不补发历史」需要两处同时就位：
+          - ``authors.last_seen_ts`` / ``baseline_ready``（账号级：决定下一轮 ``since``）
+          - ``edges.enqueued_ts``（订阅级：决定 ``commit_poll`` 入队哪些帖）
+
+        只写前者会让新订阅的 ``enqueued_ts`` 停在 ``add_edge`` 时的值（全新账号=0），
+        而 FxTwitter V2 的 ``?since=`` 只决定 200/204、不裁剪页面：第一条新帖
+        出现时整页（≤20 条）历史都会入队。返回被推进的边数。
+
+        **不要**按 ``enabled`` 过滤：停用中的边也要推进，否则将来重新启用会补发
+        （与 ``commit_poll`` 推进边水位的语义一致）。
+        """
+        now = int(time.time())
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE authors SET last_seen_ts=?, baseline_ready=1, updated_at=? "
+                "WHERE author_id=?",
+                (int(seen_ts), now, author_id),
+            )
+            return conn.execute(
+                "UPDATE edges SET enqueued_ts=? WHERE author_id=? AND enqueued_ts<?",
+                (int(seen_ts), author_id, int(seen_ts)),
+            ).rowcount
+
     # ------------------------------------------------------------ edges
     def list_edges(self, umo: str | None = None) -> list[sqlite3.Row]:
         with self._conn() as conn:
@@ -1776,7 +1802,7 @@ class Store:
 
         **昵称在这里再规范化一次**：调用方（指令 / WebUI）本来就会规范化，但写库层是
         最后一道闸 —— 漏掉它，含孤立代理对的昵称会以 ``UnicodeEncodeError`` 的形式
-        在 INSERT 处炸掉，而不是在校验处被挡下（独立验证 N-1：修了调用方不等于修了写库层）。
+        在 INSERT 处炸掉，而不是在校验处被挡下（修了调用方不等于修了写库层）。
         """
         with self._conn() as conn:
             cur = conn.execute(
@@ -2022,7 +2048,7 @@ class Store:
                             (int(post["created_ts"]), author_id, int(post["created_ts"])),
                         )
                 if not posts and edges:
-                    # 本轮没有帖可入队（例如全被 filter_* 过滤掉）：仍要把订阅水位推到
+                    # 本次没有帖可入队（例如全被 filter_* 过滤掉）：仍要把订阅水位推到
                     # 已见位置，否则 edges.enqueued_ts 会永远落后于 authors.last_seen_ts，
                     # 与 docstring 的"推进两条水位"不符。
                     conn.execute(
@@ -2183,7 +2209,7 @@ class Store:
 
 
 class FetchProvider:
-    """抓取提供者的隐式协议（P5 降级链的插槽）。
+    """抓取提供者的隐式协议（多源降级链的插槽）。
 
     契约只有两条：
       · ``name``（类属性）——稳定的英文标识，同时是配置里写的值
@@ -2216,7 +2242,9 @@ class FxTwitterProvider(FetchProvider):
     """FxTwitter / FxEmbed V2 API 提供者（免 key）。
 
     实测要点：
-      - `?since=<秒级时间戳>` 增量拉取；**无新帖返回 HTTP 204 空 body**
+      - `?since=<秒级时间戳>` **只决定 200/204、不裁剪页面**：有更新时返回固定 20 条
+        最新时间线（含大量早于 `since` 的条目）；无新帖返回 HTTP 204 空 body
+      - 增量正确性**不能依赖 `since`**，由 `edges.enqueued_ts` 保证
       - `count` 参数完全无效（页大小固定 20）
       - `since_id` 被静默忽略，**绝不能用**
       - `with_replies=true` 会插入被回复原帖并产生**重复 id**，必须去重
@@ -3264,7 +3292,7 @@ class ImagePoolBridge:
     6. **只提交照片**：image_pool 的入库路径按图片处理，视频传进去会被它存成图片后缀。
     7. **有界**：单轮入库有总预算（``image_pool_sync_budget_sec``），tag 数有上限
        （``image_pool_max_tags_per_post``）—— 一条推文不能放大成几十次跨插件写入。
-    8. **失败必须可见**（对抗审核的反例）：下载失败 / 超时 / 预算用尽 / 单个 tag 失败
+    8. **失败必须可见**：下载失败 / 超时 / 预算用尽 / 单个 tag 失败
        以前都是"静默少归档几张"，现在各自计数 + 一次性提示，并在 ``/x状态`` 与 WebUI 上汇总。
     9. **每个 tag 独立隔离**：一个坏 tag（``NUL``、孤立代理、对端内部异常）不能让
        同一条帖子的其余 tag 一起丢；同步实现的对端放到线程里调，绝不阻塞事件循环。
@@ -3377,7 +3405,7 @@ class ImagePoolBridge:
 
         ``scope`` 是调用方给的维度（这里传 handle）：**截断告警必须按账号分开**
         —— 用同一个 key 时，第二个账号的截断会被第一个账号的告警永久吞掉，
-        而且日志里点名的是第一个账号的 tag（独立验证 H-5 / J-N2）。
+        而且日志里点名的是第一个账号的 tag。
 
         规则（D1 + 用户确认的多订阅策略）：
 
@@ -3385,7 +3413,7 @@ class ImagePoolBridge:
         - 多个群用不同昵称订阅同一账号 → **每个去重后的非空昵称各入一份 tag**
           （image_pool 天然支持一图多 tag；代价是同一张图按 tag 数各存一份文件）。
         - **仅大小写不同**的昵称（``abc`` / ``ABC``）只取第一个：图库的文件系统不区分大小写，
-          两个 tag 会共用同一个目录并互相覆盖文件（v1.7.0 对抗审核实测过这条数据损坏路径），
+          两个 tag 会共用同一个目录并互相覆盖文件（v1.7.0 实测过这条数据损坏路径），
           所以本地先折叠掉，并且对端也补了同一道闸。
         - 顺序按 ``edge_id`` 稳定排序，保证"截断到上限"时留下的是确定的那几个。
         """
@@ -3516,7 +3544,7 @@ class ImagePoolBridge:
     ) -> tuple[int, int]:
         """先落盘再逐个 tag 调对端。返回 ``(added, skipped)``。
 
-        三条硬约束（都来自对抗审核的反例）：
+        三条硬约束（都来自实测反例）：
 
         1. **每个 tag 独立隔离**：``NUL`` 这类坏 tag 会让对端抛异常，若共用一个 try，
            同一条帖子的其余 tag 会一起丢。现在一个 tag 失败只记一次失败，其余继续。
@@ -3715,7 +3743,7 @@ class ImagePoolBridge:
 
     #: "一次性告警"缓存的容量上限。key 里会嵌 handle / 昵称 / tag，
     #: 长期运行（尤其昵称频繁变动）会缓慢增长；满了就丢最旧的一半，只影响"会不会再提示一次"，
-    #: **不影响任何计数**（独立验证 H-6 / J-N7）。
+    #: **不影响任何计数**。
     WARN_CACHE_MAX = 500
 
     def warn_once(self, key: str, message: str) -> None:
@@ -3725,7 +3753,7 @@ class ImagePoolBridge:
         （早先这里还写了一个 ``note`` 字段声称"供状态页解释原因"，但状态页与页面都不读它 ——
         已删除，避免"文档承诺了但从不显示"这种假接口。）
 
-        **真实保证**（别过度声称，独立验证 L-⑥/N-3 实测过）：
+        **真实保证**（别过度声称，实测过）：
         命中会刷新时间戳，所以"**每轮都在命中**"的持续故障不会被淘汰；
         但淘汰是在**插入新 key**时按时间戳丢最旧一半触发的，所以一个"很久没再命中"的 key
         迟早会被淘汰并允许再次提示 —— 这与"只提示一次"不同，是"每约半个容量次新事件内至多提示一次"。
@@ -3733,7 +3761,7 @@ class ImagePoolBridge:
         if key in self._warned:
             # **命中也要刷新时间戳**：淘汰按时间戳丢最旧的一半，若命中不刷新，
             # 越频繁命中的告警越先被淘汰 → 持续故障（预算用尽 / 下载失败 / 无昵称…）
-            # 会从"只说一次"退化成周期性刷屏（独立验证 L-⑥）。
+            # 会从"只说一次"退化成周期性刷屏。
             self._warned[key] = time.time()
             return
         if len(self._warned) >= self.WARN_CACHE_MAX:
@@ -3991,7 +4019,7 @@ class XMonitorPlugin(Star):
             quota_mb=self.int_cfg("cache_quota_mb", 512),
             ttl_days=self.int_cfg("cache_ttl_days", 30),
         )
-        #: image_pool 联动兼容层（P7）。构造期只装配，不解析对端实例 ——
+        #: image_pool 联动兼容层。构造期只装配，不解析对端实例 ——
         #: 对端可能在本插件之后才加载完成，所以解析必须推迟到每次调用前。
         self._pool_bridge = ImagePoolBridge(self)
         self._translator = Translator(self)
@@ -4434,9 +4462,12 @@ class XMonitorPlugin(Star):
         newest_any = max((post_sort_key(o) for o in statuses), default=0)
 
         if not baseline_ready:
-            # 首次成功抓取：只建立基线，不补发历史
+            # 首次成功抓取：只建立基线，不补发历史。
+            # 必须**同一事务**里同时推进该账号所有订阅边的入队水位：数据源的 ?since=
+            # 只决定 200/204、不裁剪页面，只写账号水位的话，第一条新帖出现时
+            # 整页（≤20 条）历史都会被 commit_poll 入队。
             seen = newest_any if newest_any > 0 else int(time.time())
-            self.store.mark_baseline(author_id, seen)
+            self.store.commit_baseline(author_id, seen)
             logger.info(f"[x_monitor] @{handle} 已建立基线（不补发历史），水位 {seen}")
             return {"fetched": 0, "enqueued": 0, "baseline": seen}
 
@@ -4473,8 +4504,8 @@ class XMonitorPlugin(Star):
                 f"[x_monitor] @{handle} 新增 {inserted} 条，入队 {enqueued} 条投递"
             )
 
-        # P7 图库联动：**在 commit_poll 之后**归档。
-        # 放在后面是为了"归档集合 == 真正落库的集合"：commit 失败时本轮一张都不归档，
+        # 图库联动：**在 commit_poll 之后**归档。
+        # 放在后面是为了"归档集合 == 真正落库的集合"：commit 失败时本次一张都不归档，
         # 下轮重抓（水位没推进）会补上；反过来先归档再 commit 失败，就白白归档了一批
         # 永远不会入库的帖子（虽然会被 sha256 去重，但仍是白干的活）。
         # 入库本身失败在两种顺序下都是**有损**的（水位已推进），所以失败必须写进
@@ -4490,24 +4521,24 @@ class XMonitorPlugin(Star):
         inserted: int = 0,
         enqueued: int = 0,
     ) -> None:
-        """把本轮新帖的照片归档进 image_pool（P7 联动）。**绝不抛异常**。
+        """把本次新帖的照片归档进 image_pool（图库联动）。**绝不抛异常**。
 
         - 与投递 / 免打扰完全解耦（D3）：图库是归档，免打扰时段照常入库；
           是否推送、是否「仅媒体」都不影响它。
-        - **有界**：本账号本轮共享 ``image_pool_sync_budget_sec`` 的预算，用尽即停。
+        - **有界**：本账号本次共享 ``image_pool_sync_budget_sec`` 的预算，用尽即停。
           一条推文不能把持着 ``fetch_concurrency`` 名额把其它账号饿死。
         - 预算用尽 / 入库失败都是**有损**的（水位已推进，之后不会再重抓），
           所以必须把这件事说出来（一次性日志 + 累计计数 + `/x状态`），而不是静默少归档几张。
-        - ``inserted`` 与 ``enqueued`` **都**为 0 时直接返回：本轮既没有新帖落库、
+        - ``inserted`` 与 ``enqueued`` **都**为 0 时直接返回：本次既没有新帖落库、
           也没有新入队（重启后重抓同一窗口等），再调对端只是白干的活。
-          **只看 ``inserted`` 是错的**（独立验证的反例 N1）：同一个 status id 会出现在
+          **只看 ``inserted`` 是错的**（实测反例）：同一个 status id 会出现在
           两个被监控账号的抓取里（A 原创、B 转推，``filter_reposts=false`` 时），
           B 轮 ``inserted=0`` 但 ``enqueued=1`` —— 帖子确实会投递，图却一张都不归档。
 
         **返回值刻意是 ``None``**：调用方只关心"有没有影响主流程"，而"入库了多少 / 为什么
         没入库"由 ``ImagePoolBridge`` 的累计计数、一次性日志与 `/x状态` 承担。
         早先这里返回过一个 ``stats`` 字典，但没有任何调用方读它 —— 其中的 ``reason``
-        于是成了与已删除的 ``note`` 同类的**死字段**（独立验证 H-8）。
+        于是成了与已删除的 ``note`` 同类的**死字段**。
         """
         bridge = getattr(self, "_pool_bridge", None)
         if bridge is None or not bridge.enabled():
@@ -4565,7 +4596,7 @@ class XMonitorPlugin(Star):
         """**一次遍历**同时给出状态与被本地守卫拒绝的昵称。返回 ``(状态, 被拒昵称)``。
 
         `/x状态` 与 WebUI 两处都要这两样东西，分两次调用会把 edges 全表扫两遍
-        （独立验证 N-5 实测该路径扫描翻倍）。
+        （实测该路径扫描翻倍）。
 
         每个状态都对应一种"看起来一样、原因完全不同"的情形，必须分开说，否则状态页会撒谎：
 
@@ -4573,8 +4604,8 @@ class XMonitorPlugin(Star):
         - ``rejected_only``：设了昵称，但没有一个能用作图库分类名（``NUL`` / 孤立代理…）；
         - ``paused_only``：昵称只存在于**暂停推送**（``enabled=0``）的订阅上 ——
           直接归成 ``no_nickname`` 会让用户去"设昵称"，而其实该做的是 `/x推送 开`
-          （独立验证的反例 H-4 / J-N3）；
-        - ``unknown``：读订阅表失败 —— 直接归成 ``no_nickname`` 同样是撒谎（H-2 / J-N6）。
+          （实测反例）；
+        - ``unknown``：读订阅表失败 —— 直接归成 ``no_nickname`` 同样是撒谎。
         """
         try:
             rows = self.store.list_edges()
@@ -5329,7 +5360,7 @@ class XMonitorPlugin(Star):
                     "display_name": str(row["display_name"]),
                     "baseline_ready": bool(int(row["baseline_ready"] or 0)),
                     "last_seen_ts": int(row["last_seen_ts"] or 0),
-                    # 该账号当前由哪个数据源供数（P5 降级链归属）
+                    # 该账号当前由哪个数据源供数（多源降级链归属）
                     "source": self.source_for(handle),
                 }
             )
@@ -5379,7 +5410,7 @@ class XMonitorPlugin(Star):
         recent = self.store.recent_deliveries(20)
         failed = [r for r in recent if str(r["state"]) == STATE_FAILED]
         health = self.provider_health()
-        # 联动状态只在这里查一次（状态 + 被拒昵称一次遍历给全，见 N-5）
+        # 联动状态只在这里查一次（状态 + 被拒昵称一次遍历给全）
         pool_state, pool_rejected = self.pool_tag_state_and_rejected()
         return {
             "plugin": PLUGIN_NAME,
@@ -5409,15 +5440,15 @@ class XMonitorPlugin(Star):
                 "translate_enabled": self.bool_cfg("translate_enabled", False),
                 "media_posts": self.store.media_post_count(),
                 "replay_max": max(1, self.int_cfg("replay_max", 10)),
-                # P7：图库联动状态（页面「总览」卡片直接用这个字段）
+                # 图库联动状态（页面「总览」卡片直接用这个字段）
                 "image_pool": (
                     dict(
                         self._pool_bridge.snapshot(),
-                        # 只查一次库：分别调两个函数会让同一份 payload 自相矛盾（H-3）。
+                        # 只查一次库：分别调两个函数会让同一份 payload 自相矛盾。
                         tag_state=pool_state,
-                        # 文案的唯一来源是服务端（app.js 不再自己拷一份，L-C2）
+                        # 文案的唯一来源是服务端（app.js 不再自己拷一份）
                         tag_state_text=IMAGE_POOL_TAG_STATE_TEXT.get(pool_state, ""),
-                        # 全局状态覆盖不到的角落：另有这些昵称不会入库（L-②）
+                        # 全局状态覆盖不到的角落：另有这些昵称不会入库
                         rejected_nicknames=pool_rejected,
                     )
                     if getattr(self, "_pool_bridge", None)
@@ -5570,7 +5601,7 @@ class XMonitorPlugin(Star):
         if "nickname" in body:
             nick_ok, nickname, nick_err = parse_nickname_input(body.get("nickname"))
             if not nick_ok:
-                # 不能把"非法输入"当成"清空昵称"（那会静默抹掉旧值并回 200 成功，L-N3）
+                # 不能把"非法输入"当成"清空昵称"（那会静默抹掉旧值并回 200 成功）
                 return web_api.error_response(
                     f"昵称不合法：{nick_err}。"
                     "（不可含 \\ / : * ? \" < > | 与控制字符；也不可含无法编码的字符。）",
@@ -5835,7 +5866,7 @@ class XMonitorPlugin(Star):
         group_id = str(event.get_group_id() or "")
         nick_raw = str(nickname or "").strip()
         # 与 /x昵称 共用同一套"清空"词表：以前这里没有，`/x订阅 elonmusk 清空`
-        # 会把字面量「清空」写进库（独立验证 O-B7）。
+        # 会把字面量「清空」写进库。
         if nick_raw in ("清空", "清除", "默认", "none", "-"):
             nick_raw = ""
         nick_ok, nick, nick_err = parse_nickname_input(nick_raw or None)
@@ -6079,7 +6110,7 @@ class XMonitorPlugin(Star):
         try:
             edges = self.store.list_edges()
         except Exception as exc:
-            # 读库失败时以前会直接把异常抛出 handler（用户"发了没反应"，独立验证 O-N8）
+            # 读库失败时以前会直接把异常抛出 handler（用户"发了没反应"）
             logger.warning(f"[x_monitor] /x状态 读取订阅列表失败: {exc}")
             yield event.plain_result("⚠️ 读取订阅数据失败，暂时无法显示状态（详见日志）。")
             event.stop_event()
@@ -6102,9 +6133,9 @@ class XMonitorPlugin(Star):
         pool = self._pool_bridge.snapshot() if getattr(self, "_pool_bridge", None) else None
         if pool is not None:
             # 快照是本插件自己的，但一律 .get()：硬索引会让"将来删掉一个键"
-            # 直接打挂整条 /x状态（删 note 那次就是这类改动，H-7 / L-C6）。
+            # 直接打挂整条 /x状态（删 note 那次就是这类改动）。
             if "enabled" not in pool:
-                # .get() 消灭了 KeyError，但别把"字段缺失"说成"功能关闭"（N-3）
+                # .get() 消灭了 KeyError，但别把"字段缺失"说成"功能关闭"
                 lines.append("· 图库联动 状态未知（快照缺字段，详见日志）")
             elif not pool.get("enabled"):
                 lines.append("· 图库联动 关闭（image_pool_sync_enabled）")
@@ -6115,14 +6146,14 @@ class XMonitorPlugin(Star):
                 )
                 # **当前态与历史计数分开说**：把它们拼在一行、共用一个"当前配置下"前缀
                 # 会造成作用域错误 —— 只有第一段是当前态，后面几段全是历史累计
-                # （独立验证 L-④ 用真实路径复现过这句自相矛盾的话）。
+                # （用真实路径复现过这句自相矛盾的话）。
                 tag_state, rejected = self.pool_tag_state_and_rejected()
                 state_text = IMAGE_POOL_TAG_STATE_TEXT.get(tag_state, "")
                 if state_text:
                     lines.append(f"· ⚠️ 当前配置下不会入库：{state_text}")
                 # **只用"当前配置里被拒的昵称个数"**：rejected_tags 是 tags_for 的调用次数，
                 # 不是昵称个数，拿来兜底会输出"另有 5 个昵称（NUL）"而实际只有 1 个
-                # 且可能早已清空（独立验证 N-1）。
+                # 且可能早已清空。
                 if tag_state != "rejected_only" and rejected:
                     lines.append(
                         f"· ⚠️ 另有 {len(rejected)} 个昵称不能用作图库分类名"
